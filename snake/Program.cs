@@ -36,10 +36,11 @@ static bool RunGame(Random random, ref int highScore, string highScorePath)
 
     var direction = Direction.Right;
     var queuedDirection = direction;
-    var food = SpawnFood(random, snake);
+    var food = TrySpawnFood(random, snake) ?? throw new InvalidOperationException("Не удалось создать еду на пустом поле.");
     var score = 0;
     var paused = false;
     var gameOver = false;
+    var won = false;
 
     var stopwatch = Stopwatch.StartNew();
     long lastTick = 0;
@@ -87,7 +88,8 @@ static bool RunGame(Random random, ref int highScore, string highScorePath)
 
         var nextHead = Move(snake.First!.Value, direction);
         var outOfBounds = nextHead.X < 0 || nextHead.X >= Width || nextHead.Y < 0 || nextHead.Y >= Height;
-        var hitSelf = snake.Contains(nextHead);
+        var willEat = nextHead == food;
+        var hitSelf = HitsSnake(nextHead, snake, ignoreTail: !willEat);
 
         if (outOfBounds || hitSelf)
         {
@@ -97,15 +99,25 @@ static bool RunGame(Random random, ref int highScore, string highScorePath)
 
         snake.AddFirst(nextHead);
 
-        if (nextHead == food)
+        if (willEat)
         {
             score += 10;
-            food = SpawnFood(random, snake);
+
             if (score > highScore)
             {
                 highScore = score;
                 SaveHighScore(highScorePath, highScore);
             }
+
+            var spawnResult = TrySpawnFood(random, snake);
+            if (spawnResult is null)
+            {
+                won = true;
+                gameOver = true;
+                break;
+            }
+
+            food = spawnResult.Value;
         }
         else
         {
@@ -118,7 +130,9 @@ static bool RunGame(Random random, ref int highScore, string highScorePath)
     Render(snake, food, score, highScore, paused, gameOver: true);
 
     Console.SetCursorPosition(0, Height + 5);
-    Console.WriteLine("Игра окончена. Enter — заново, Esc — выход.");
+    Console.WriteLine(won
+        ? "Победа! Поле заполнено. Enter — заново, Esc — выход."
+        : "Игра окончена. Enter — заново, Esc — выход.");
 
     while (true)
     {
@@ -135,8 +149,14 @@ static bool RunGame(Random random, ref int highScore, string highScorePath)
     }
 }
 
-static Point SpawnFood(Random random, LinkedList<Point> snake)
+static Point? TrySpawnFood(Random random, LinkedList<Point> snake)
 {
+    var boardArea = Width * Height;
+    if (snake.Count >= boardArea)
+    {
+        return null;
+    }
+
     Point food;
     do
     {
@@ -145,6 +165,32 @@ static Point SpawnFood(Random random, LinkedList<Point> snake)
     while (snake.Contains(food));
 
     return food;
+}
+
+static bool HitsSnake(Point nextHead, LinkedList<Point> snake, bool ignoreTail)
+{
+    if (!ignoreTail)
+    {
+        return snake.Contains(nextHead);
+    }
+
+    var node = snake.First;
+    while (node is not null)
+    {
+        if (node.Next is null)
+        {
+            break;
+        }
+
+        if (node.Value == nextHead)
+        {
+            return true;
+        }
+
+        node = node.Next;
+    }
+
+    return false;
 }
 
 static Direction? MapKey(ConsoleKey key) => key switch
